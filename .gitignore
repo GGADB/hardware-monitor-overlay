@@ -1,0 +1,11 @@
+bin/
+build/
+obj/
+*.pdb
+*.log
+.vs/
+.idea/
+Thumbs.db
+desktop.ini
+# Intermediate build output
+src/*.exe
