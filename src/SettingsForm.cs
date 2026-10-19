@@ -27,6 +27,13 @@ namespace HardwareMonitorOverlay
         private ColorSwatchPanel _innerPreview;
         private ColorSwatchPanel _outerPreview;
         private PrivateFontCollection _privateFonts;
+        private CheckBox _clickThroughBox;
+        private RadioButton _horizontalRadio;
+        private RadioButton _verticalRadio;
+        private TrackBar _spacingBar;
+        private Label _spacingLabel;
+        private TextBox _hotkeyBox;
+        private string _hotkeyText = string.Empty;
         private readonly HashSet<string> _importedFamilies = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         public OverlaySettings ResultSettings
@@ -44,7 +51,7 @@ namespace HardwareMonitorOverlay
             MinimizeBox = false;
             ShowInTaskbar = true;
             TopMost = true;
-            ClientSize = new Size(520, 680);
+            ClientSize = new Size(520, 794);
             BackColor = Color.FromArgb(246, 247, 250);
             Font = new Font("Microsoft YaHei UI", 9f, FontStyle.Regular, GraphicsUnit.Point);
             BuildUI();
@@ -155,9 +162,100 @@ namespace HardwareMonitorOverlay
             _backgroundOpacityLabel.TextAlign = ContentAlignment.MiddleLeft;
             backgroundGroup.Controls.Add(_backgroundOpacityLabel);
 
+            GroupBox layoutGroup = new GroupBox();
+            layoutGroup.Text = "布局与快捷键";
+            layoutGroup.Location = new Point(12, 274);
+            layoutGroup.Size = new Size(496, 150);
+            Controls.Add(layoutGroup);
+
+            Label orientationLabel = new Label();
+            orientationLabel.Text = "排列方式";
+            orientationLabel.Location = new Point(20, 26);
+            orientationLabel.AutoSize = true;
+            layoutGroup.Controls.Add(orientationLabel);
+
+            _horizontalRadio = new RadioButton();
+            _horizontalRadio.Text = "横向单行";
+            _horizontalRadio.Location = new Point(112, 22);
+            _horizontalRadio.AutoSize = true;
+            layoutGroup.Controls.Add(_horizontalRadio);
+
+            _verticalRadio = new RadioButton();
+            _verticalRadio.Text = "竖向多行";
+            _verticalRadio.Location = new Point(232, 22);
+            _verticalRadio.AutoSize = true;
+            layoutGroup.Controls.Add(_verticalRadio);
+
+            Label spacingLabel = new Label();
+            spacingLabel.Text = "间距";
+            spacingLabel.Location = new Point(20, 66);
+            spacingLabel.AutoSize = true;
+            layoutGroup.Controls.Add(spacingLabel);
+
+            _spacingBar = new TrackBar();
+            _spacingBar.Minimum = 0;
+            _spacingBar.Maximum = 24;
+            _spacingBar.TickFrequency = 2;
+            _spacingBar.SmallChange = 1;
+            _spacingBar.LargeChange = 2;
+            _spacingBar.Location = new Point(112, 54);
+            _spacingBar.Size = new Size(300, 40);
+            _spacingBar.ValueChanged += delegate { _spacingLabel.Text = _spacingBar.Value + " px"; };
+            layoutGroup.Controls.Add(_spacingBar);
+
+            _spacingLabel = new Label();
+            _spacingLabel.Location = new Point(420, 66);
+            _spacingLabel.Size = new Size(56, 20);
+            _spacingLabel.TextAlign = ContentAlignment.MiddleLeft;
+            layoutGroup.Controls.Add(_spacingLabel);
+
+            Label hotkeyLabel = new Label();
+            hotkeyLabel.Text = "移动快捷键";
+            hotkeyLabel.Location = new Point(20, 110);
+            hotkeyLabel.AutoSize = true;
+            layoutGroup.Controls.Add(hotkeyLabel);
+
+            _hotkeyBox = new TextBox();
+            _hotkeyBox.Location = new Point(112, 106);
+            _hotkeyBox.Size = new Size(150, 24);
+            _hotkeyBox.ReadOnly = true;
+            _hotkeyBox.KeyDown += delegate(object sender, KeyEventArgs e)
+            {
+                e.Handled = true;
+                e.SuppressKeyPress = true;
+                if (e.KeyCode == Keys.Back || e.KeyCode == Keys.Delete)
+                {
+                    _hotkeyText = string.Empty;
+                    _hotkeyBox.Text = "未设置";
+                    return;
+                }
+                if (e.KeyCode == Keys.ControlKey || e.KeyCode == Keys.ShiftKey || e.KeyCode == Keys.Menu || e.KeyCode == Keys.LWin || e.KeyCode == Keys.RWin) return;
+                if (e.Modifiers == Keys.None) return;
+                string text = HotkeySetting.Format(e.KeyCode, e.Modifiers);
+                if (string.IsNullOrEmpty(text)) return;
+                _hotkeyText = text;
+                _hotkeyBox.Text = text;
+            };
+            layoutGroup.Controls.Add(_hotkeyBox);
+
+            Button clearHotkeyButton = new Button();
+            clearHotkeyButton.Text = "清除";
+            clearHotkeyButton.Location = new Point(270, 104);
+            clearHotkeyButton.Size = new Size(56, 26);
+            clearHotkeyButton.Click += delegate { _hotkeyText = string.Empty; _hotkeyBox.Text = "未设置"; };
+            layoutGroup.Controls.Add(clearHotkeyButton);
+
+            Label hotkeyHint = new Label();
+            hotkeyHint.Text = "按下组合键（需含 Ctrl 等）";
+            hotkeyHint.ForeColor = Color.FromArgb(90, 90, 90);
+            hotkeyHint.Font = new Font(Font.FontFamily, 8.5f);
+            hotkeyHint.Location = new Point(334, 110);
+            hotkeyHint.AutoSize = true;
+            layoutGroup.Controls.Add(hotkeyHint);
+
             GroupBox textGroup = new GroupBox();
             textGroup.Text = "文字";
-            textGroup.Location = new Point(12, 274);
+            textGroup.Location = new Point(12, 436);
             textGroup.Size = new Size(496, 300);
             Controls.Add(textGroup);
 
@@ -211,17 +309,22 @@ namespace HardwareMonitorOverlay
             hint.Location = new Point(38, 234);
             hint.Size = new Size(430, 22);
             textGroup.Controls.Add(hint);
+            _clickThroughBox = new CheckBox();
+            _clickThroughBox.Text = "鼠标穿透（不挡住游戏点击）";
+            _clickThroughBox.Location = new Point(36, 260);
+            _clickThroughBox.AutoSize = true;
+            textGroup.Controls.Add(_clickThroughBox);
 
             Button resetButton = new Button();
             resetButton.Text = "恢复默认";
-            resetButton.Location = new Point(16, 625);
+            resetButton.Location = new Point(16, 750);
             resetButton.Size = new Size(100, 32);
             resetButton.Click += delegate { ResetSettings(); };
             Controls.Add(resetButton);
 
             Button cancelButton = new Button();
             cancelButton.Text = "取消";
-            cancelButton.Location = new Point(310, 625);
+            cancelButton.Location = new Point(310, 750);
             cancelButton.Size = new Size(86, 32);
             cancelButton.DialogResult = DialogResult.Cancel;
             Controls.Add(cancelButton);
@@ -229,7 +332,7 @@ namespace HardwareMonitorOverlay
 
             Button okButton = new Button();
             okButton.Text = "确定";
-            okButton.Location = new Point(406, 625);
+            okButton.Location = new Point(406, 750);
             okButton.Size = new Size(86, 32);
             okButton.Click += delegate
             {
@@ -404,6 +507,13 @@ namespace HardwareMonitorOverlay
             _imagePathBox.Text = _settings.BackgroundImagePath ?? string.Empty;
             _fontSizeBox.Value = (decimal)Math.Max(4f, Math.Min(48f, _settings.FontSize));
             PopulateFontFamilies(_settings.FontFilePath);
+            _horizontalRadio.Checked = _settings.LayoutOrientation == LayoutOrientation.Horizontal;
+            _verticalRadio.Checked = _settings.LayoutOrientation == LayoutOrientation.Vertical;
+            _spacingBar.Value = Math.Max(_spacingBar.Minimum, Math.Min(_spacingBar.Maximum, _settings.MetricSpacing));
+            _spacingLabel.Text = _spacingBar.Value + " px";
+            _hotkeyText = _settings.MoveHotkey ?? string.Empty;
+            _hotkeyBox.Text = string.IsNullOrEmpty(_hotkeyText) ? "未设置" : _hotkeyText;
+            _clickThroughBox.Checked = _settings.ClickThrough;
             UpdatePreviews();
             UpdateControlState();
         }
@@ -436,6 +546,10 @@ namespace HardwareMonitorOverlay
             _settings.BackgroundOpacity = Math.Max(0, Math.Min(255, (int)Math.Round(_backgroundOpacityBar.Value * 255.0 / 100.0)));
             _settings.FontSize = (float)_fontSizeBox.Value;
             _settings.BackgroundImagePath = _imagePathBox.Text;
+            _settings.ClickThrough = _clickThroughBox.Checked;
+            _settings.LayoutOrientation = _verticalRadio.Checked ? LayoutOrientation.Vertical : LayoutOrientation.Horizontal;
+            _settings.MetricSpacing = _spacingBar.Value;
+            _settings.MoveHotkey = _hotkeyText ?? string.Empty;
             string selectedFont = _fontFamilyBox.SelectedItem as string;
             _settings.FontFamilyName = string.IsNullOrEmpty(selectedFont) ? "Microsoft YaHei UI" : selectedFont;
             if (!_importedFamilies.Contains(_settings.FontFamilyName))
@@ -455,6 +569,10 @@ namespace HardwareMonitorOverlay
             _settings.FillColor = defaults.FillColor;
             _settings.InnerOutlineColor = defaults.InnerOutlineColor;
             _settings.OuterOutlineColor = defaults.OuterOutlineColor;
+            _settings.ClickThrough = defaults.ClickThrough;
+            _settings.LayoutOrientation = defaults.LayoutOrientation;
+            _settings.MetricSpacing = defaults.MetricSpacing;
+            _settings.MoveHotkey = defaults.MoveHotkey;
             LoadFromSettings();
         }
     }

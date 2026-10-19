@@ -45,6 +45,8 @@ namespace HardwareMonitorOverlay
         private const int ULW_ALPHA = 0x02;
         private const byte AC_SRC_ALPHA = 0x01;
         private const int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
+        private const int GWL_EXSTYLE = -20;
+        private const int WS_EX_TRANSPARENT = 0x00000020;
 
         [DllImport("user32.dll")]
         private static extern bool ReleaseCapture();
@@ -74,6 +76,12 @@ namespace HardwareMonitorOverlay
         private static extern bool DeleteObject(IntPtr hObject);
         [DllImport("user32.dll", SetLastError = true)]
         private static extern bool UpdateLayeredWindow(IntPtr hwnd, IntPtr hdcDst, ref POINT pptDst, ref SIZE psize, IntPtr hdcSrc, ref POINT ppsrc, int crKey, ref BLENDFUNCTION pblend, int dwFlags);
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
+        [DllImport("user32.dll")]
+        private static extern short GetAsyncKeyState(int vKey);
 
         [StructLayout(LayoutKind.Sequential)]
         private struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
@@ -93,6 +101,10 @@ namespace HardwareMonitorOverlay
         private NotifyIcon _tray;
         private ToolStripMenuItem _autoStartItem;
         private ToolStripMenuItem _rtssStatusItem;
+        private ToolStripMenuItem _clickThroughItem;
+        private WinFormsTimer _hotkeyTimer;
+        private HotkeySetting _moveHotkey;
+        private bool _moveHotkeyHeld;
         private RtssOsdWriter _rtss;
         private PresentMonFpsProvider _presentMon;
         private IHardware _ssd1;
@@ -105,12 +117,17 @@ namespace HardwareMonitorOverlay
         private Font _valueFont;
         private Image _backgroundImage;
         private PrivateFontCollection _privateFonts;
-        private float _labelWidth;
-        private float _tempWidth;
+        private readonly float[] _labelWidths = new float[6];
+        private readonly float[] _valueWidths = new float[6];
+        private readonly float[] _blockWidths = new float[6];
         private float _loadWidth;
+        private float _labelColumnWidth;
+        private float _valueColumnWidth;
         private float _rowHeight;
+        private float _contentHeight;
         private float _padding;
         private float _gap;
+        private float _separatorGap;
 
         private readonly string[] _metricNames = new string[] { "CPU", "GPU", "RAM", "SSD1", "SSD2", "FPS" };
         private readonly float?[] _temperatures = new float?[6];
@@ -121,6 +138,7 @@ namespace HardwareMonitorOverlay
             _openSettingsOnShow = openSettingsOnShow;
             _openColorPickerOnShow = openColorPickerOnShow;
             _settings = SettingsStore.Load();
+            _moveHotkey = HotkeySetting.Parse(_settings.MoveHotkey);
             Text = "硬件温度与占用监控";
             FormBorderStyle = FormBorderStyle.None;
             ShowInTaskbar = false;
@@ -136,7 +154,7 @@ namespace HardwareMonitorOverlay
             LoadBackgroundImage();
             RecalculateLayout();
             BuildMenu();
-            Load += delegate { PlaceTopRight(); RenderToLayeredWindow(); };
+            Load += delegate { PlaceTopRight(); ApplyClickThrough(); RenderToLayeredWindow(); };
             Shown += delegate
             {
                 if (_openSettingsOnShow) BeginInvoke(new Action(OpenSettings));
@@ -150,6 +168,11 @@ namespace HardwareMonitorOverlay
             _fullscreenTimer.Interval = 1000;
             _fullscreenTimer.Tick += delegate { CheckFullscreen(); };
             _fullscreenTimer.Start();
+
+            _hotkeyTimer = new WinFormsTimer();
+            _hotkeyTimer.Interval = 100;
+            _hotkeyTimer.Tick += delegate { PollMoveHotkey(); };
+            _hotkeyTimer.Start();
         }
 
         protected override bool ShowWithoutActivation
@@ -166,6 +189,7 @@ namespace HardwareMonitorOverlay
                 cp.ExStyle |= 0x00000080; // WS_EX_TOOLWINDOW
                 cp.ExStyle |= 0x08000000; // WS_EX_NOACTIVATE
                 cp.ExStyle |= 0x00080000; // WS_EX_LAYERED
+                if (_settings != null && _settings.ClickThrough) cp.ExStyle |= WS_EX_TRANSPARENT;
                 return cp;
             }
         }
@@ -201,6 +225,15 @@ namespace HardwareMonitorOverlay
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("设置...", null, delegate { OpenSettings(); });
             menu.Items.Add("重新放到右上角", null, delegate { PlaceTopRight(); RenderToLayeredWindow(); });
+            _clickThroughItem = new ToolStripMenuItem("鼠标穿透（关闭后可拖动面板）");
+            _clickThroughItem.CheckOnClick = true;
+            _clickThroughItem.Click += delegate
+            {
+                _settings.ClickThrough = _clickThroughItem.Checked;
+                SettingsStore.Save(_settings);
+                ApplyClickThrough();
+            };
+            menu.Items.Add(_clickThroughItem);
             menu.Items.Add(new ToolStripSeparator());
             _autoStartItem = new ToolStripMenuItem("开机自动启动");
             _autoStartItem.CheckOnClick = true;
@@ -209,7 +242,7 @@ namespace HardwareMonitorOverlay
             _rtssStatusItem = new ToolStripMenuItem("游戏内覆盖：检测中…");
             _rtssStatusItem.Enabled = false;
             menu.Items.Add(_rtssStatusItem);
-            menu.Opening += delegate { _autoStartItem.Checked = AutoStartTaskExists(); };
+            menu.Opening += delegate { _autoStartItem.Checked = AutoStartTaskExists(); _clickThroughItem.Checked = _settings.ClickThrough; };
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("退出", null, delegate { Close(); });
             ContextMenuStrip = menu;
@@ -245,10 +278,13 @@ namespace HardwareMonitorOverlay
         {
             _settings = settings.Clone();
             SettingsStore.Save(_settings);
+            _moveHotkey = HotkeySetting.Parse(_settings.MoveHotkey);
+            _moveHotkeyHeld = false;
             CreateFonts();
             LoadBackgroundImage();
             RecalculateLayout();
             ClampToScreen();
+            ApplyClickThrough();
             RenderToLayeredWindow();
         }
 
@@ -308,17 +344,43 @@ namespace HardwareMonitorOverlay
             {
                 graphics.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
                 StringFormat format = StringFormat.GenericTypographic;
-                _labelWidth = 0f;
-                foreach (string name in _metricNames)
-                    _labelWidth = Math.Max(_labelWidth, graphics.MeasureString(name, _labelFont, PointF.Empty, format).Width);
-                _tempWidth = graphics.MeasureString("000.0\u00B0C", _valueFont, PointF.Empty, format).Width;
+                float spacing = Math.Max(0f, Math.Min(30f, _settings.MetricSpacing));
+                _padding = Math.Max(4f, spacing + 1f);
+                _gap = spacing;
+                _separatorGap = Math.Max(4f, spacing + 3f);
+                _contentHeight = Math.Max(_labelFont.Height, _valueFont.Height);
                 _loadWidth = graphics.MeasureString("100%", _valueFont, PointF.Empty, format).Width;
-                _padding = 5f;
-                _gap = 8f;
-                _rowHeight = Math.Max(_labelFont.Height, _valueFont.Height) + 4f;
-                int width = (int)Math.Ceiling(_padding + _labelWidth + _gap + _tempWidth + _gap + _loadWidth + _padding);
-                int height = (int)Math.Ceiling(_padding + _rowHeight * _metricNames.Length + _padding);
-                ClientSize = new Size(Math.Max(80, width), Math.Max(40, height));
+                _labelColumnWidth = 0f;
+                _valueColumnWidth = 0f;
+                for (int i = 0; i < _metricNames.Length; i++)
+                {
+                    _labelWidths[i] = graphics.MeasureString(_metricNames[i], _labelFont, PointF.Empty, format).Width;
+                    string sample = i == 5 ? "0000" : "000.0\u00B0C";
+                    _valueWidths[i] = graphics.MeasureString(sample, _valueFont, PointF.Empty, format).Width;
+                    _blockWidths[i] = _labelWidths[i] + _gap + _valueWidths[i];
+                    if (i < 3) _blockWidths[i] += _gap + _loadWidth;
+                    _labelColumnWidth = Math.Max(_labelColumnWidth, _labelWidths[i]);
+                    _valueColumnWidth = Math.Max(_valueColumnWidth, _valueWidths[i]);
+                }
+
+                int width;
+                int height;
+                if (_settings.LayoutOrientation == LayoutOrientation.Vertical)
+                {
+                    _rowHeight = _contentHeight + Math.Max(2f, spacing * 0.8f);
+                    width = (int)Math.Ceiling(_padding * 2f + _labelColumnWidth + _gap + _valueColumnWidth + _gap + _loadWidth);
+                    height = (int)Math.Ceiling(_padding * 2f + _rowHeight * _metricNames.Length);
+                }
+                else
+                {
+                    _rowHeight = 0f;
+                    float total = _padding * 2f;
+                    for (int i = 0; i < _metricNames.Length; i++) total += _blockWidths[i];
+                    total += (_metricNames.Length - 1) * (_separatorGap * 2f + 1f);
+                    width = (int)Math.Ceiling(total);
+                    height = (int)Math.Ceiling(_padding * 2f + _contentHeight + 2f);
+                }
+                ClientSize = new Size(Math.Max(80, width), Math.Max(28, height));
             }
         }
 
@@ -402,18 +464,57 @@ namespace HardwareMonitorOverlay
 
         private void DrawMetrics(Graphics graphics)
         {
+            if (_settings.LayoutOrientation == LayoutOrientation.Vertical) DrawMetricsVertical(graphics);
+            else DrawMetricsHorizontal(graphics);
+        }
+
+        private void DrawMetricsHorizontal(Graphics graphics)
+        {
+            float yLabel = _padding + (_contentHeight - _labelFont.Height) / 2f;
+            float yValue = _padding + (_contentHeight - _valueFont.Height) / 2f;
+            float x = _padding;
+            for (int i = 0; i < _metricNames.Length; i++)
+            {
+                DrawStyledText(graphics, _metricNames[i], x, yLabel, _labelFont, _settings.FillColor);
+                x += _labelWidths[i] + _gap;
+                string valueText = i == 5 ? FormatFps(_temperatures[i]) : FormatTemperature(_temperatures[i]);
+                Color valueColor = i == 5 ? _settings.FillColor : TemperatureColor(_temperatures[i], i);
+                DrawStyledText(graphics, valueText, x, yValue, _valueFont, valueColor);
+                x += _valueWidths[i];
+                if (i < 3)
+                {
+                    x += _gap;
+                    DrawStyledText(graphics, FormatLoad(_loads[i]), x, yValue, _valueFont, LoadColor(_loads[i]));
+                    x += _loadWidth;
+                }
+                if (i < _metricNames.Length - 1)
+                {
+                    x += _separatorGap;
+                    using (Pen pen = new Pen(Color.FromArgb(80, _settings.FillColor), 1f))
+                        graphics.DrawLine(pen, x, _padding, x, ClientSize.Height - _padding);
+                    x += 1f + _separatorGap;
+                }
+            }
+        }
+
+        private void DrawMetricsVertical(Graphics graphics)
+        {
             float y = _padding;
             for (int i = 0; i < _metricNames.Length; i++)
             {
-                DrawStyledText(graphics, _metricNames[i], _padding, y, _labelFont, _settings.FillColor);
+                float yLabel = y + (_contentHeight - _labelFont.Height) / 2f;
+                float yValue = y + (_contentHeight - _valueFont.Height) / 2f;
+                DrawStyledText(graphics, _metricNames[i], _padding, yLabel, _labelFont, _settings.FillColor);
+                float valueX = _padding + _labelColumnWidth + _gap;
                 string valueText = i == 5 ? FormatFps(_temperatures[i]) : FormatTemperature(_temperatures[i]);
                 Color valueColor = i == 5 ? _settings.FillColor : TemperatureColor(_temperatures[i], i);
-                DrawStyledText(graphics, valueText, _padding + _labelWidth + _gap, y, _valueFont, valueColor);
+                DrawStyledText(graphics, valueText, valueX, yValue, _valueFont, valueColor);
                 if (i < 3)
-                    DrawStyledText(graphics, FormatLoad(_loads[i]), _padding + _labelWidth + _gap + _tempWidth + _gap, y, _valueFont, LoadColor(_loads[i]));
+                    DrawStyledText(graphics, FormatLoad(_loads[i]), valueX + _valueColumnWidth + _gap, yValue, _valueFont, LoadColor(_loads[i]));
                 y += _rowHeight;
             }
         }
+
         private void DrawStyledText(Graphics graphics, string text, float x, float y, Font font, Color fillColor)
         {
             DrawTextRing(graphics, text, x, y, font, _settings.OuterOutlineColor, 2);
@@ -506,6 +607,44 @@ namespace HardwareMonitorOverlay
             }
         }
 
+        private void ApplyClickThrough()
+        {
+            if (!IsHandleCreated) return;
+            try
+            {
+                int style = GetWindowLong(Handle, GWL_EXSTYLE);
+                int updated = (_settings.ClickThrough && !_moveHotkeyHeld) ? (style | WS_EX_TRANSPARENT) : (style & ~WS_EX_TRANSPARENT);
+                if (updated != style) SetWindowLong(Handle, GWL_EXSTYLE, updated);
+            }
+            catch (Exception ex)
+            {
+                WriteLog(ex);
+            }
+        }
+
+        private void PollMoveHotkey()
+        {
+            bool held = false;
+            if (_moveHotkey != null && _moveHotkey.IsValid)
+            {
+                held = IsKeyDown((int)_moveHotkey.VirtualKey);
+                if ((_moveHotkey.Modifiers & HotkeySetting.ModControl) != 0) held &= IsKeyDown(0x11);
+                if ((_moveHotkey.Modifiers & HotkeySetting.ModAlt) != 0) held &= IsKeyDown(0x12);
+                if ((_moveHotkey.Modifiers & HotkeySetting.ModShift) != 0) held &= IsKeyDown(0x10);
+                if ((_moveHotkey.Modifiers & HotkeySetting.ModWin) != 0) held &= IsKeyDown(0x5B) || IsKeyDown(0x5C);
+            }
+            if (held != _moveHotkeyHeld)
+            {
+                _moveHotkeyHeld = held;
+                ApplyClickThrough();
+            }
+        }
+
+        private static bool IsKeyDown(int virtualKey)
+        {
+            return (GetAsyncKeyState(virtualKey) & 0x8000) != 0;
+        }
+
         private void CheckFullscreen()
         {
             if (_rtss == null || !_rtss.IsConnected)
@@ -573,6 +712,7 @@ namespace HardwareMonitorOverlay
         {
             if (_timer != null) { _timer.Stop(); _timer.Dispose(); _timer = null; }
             if (_fullscreenTimer != null) { _fullscreenTimer.Stop(); _fullscreenTimer.Dispose(); _fullscreenTimer = null; }
+            if (_hotkeyTimer != null) { _hotkeyTimer.Stop(); _hotkeyTimer.Dispose(); _hotkeyTimer = null; }
             if (_computer != null) { try { _computer.Close(); } catch { } _computer = null; }
             if (_rtss != null) { _rtss.Dispose(); _rtss = null; }
             if (_presentMon != null) { _presentMon.Dispose(); _presentMon = null; }

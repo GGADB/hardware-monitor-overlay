@@ -12,6 +12,12 @@ namespace HardwareMonitorOverlay
         Image
     }
 
+    internal enum LayoutOrientation
+    {
+        Horizontal,
+        Vertical
+    }
+
     internal sealed class OverlaySettings
     {
         public BackgroundMode BackgroundMode { get; set; }
@@ -24,6 +30,10 @@ namespace HardwareMonitorOverlay
         public Color FillColor { get; set; }
         public Color InnerOutlineColor { get; set; }
         public Color OuterOutlineColor { get; set; }
+        public bool ClickThrough { get; set; }
+        public LayoutOrientation LayoutOrientation { get; set; }
+        public int MetricSpacing { get; set; }
+        public string MoveHotkey { get; set; }
 
         public OverlaySettings()
         {
@@ -37,6 +47,10 @@ namespace HardwareMonitorOverlay
             FillColor = Color.FromArgb(255, 255, 255, 255);
             InnerOutlineColor = Color.FromArgb(255, 0, 0, 0);
             OuterOutlineColor = Color.FromArgb(255, 0, 0, 0);
+            ClickThrough = true;
+            LayoutOrientation = LayoutOrientation.Horizontal;
+            MetricSpacing = 6;
+            MoveHotkey = "Ctrl+Alt+M";
         }
 
         public OverlaySettings Clone()
@@ -132,6 +146,23 @@ namespace HardwareMonitorOverlay
                         case "OuterOutlineColor":
                             settings.OuterOutlineColor = ColorFromHex(value, settings.OuterOutlineColor);
                             break;
+                        case "ClickThrough":
+                            bool clickThrough;
+                            if (bool.TryParse(value, out clickThrough)) settings.ClickThrough = clickThrough;
+                            else settings.ClickThrough = value.Trim() == "1";
+                            break;
+                        case "LayoutOrientation":
+                            LayoutOrientation orientation;
+                            if (Enum.TryParse(value, true, out orientation)) settings.LayoutOrientation = orientation;
+                            break;
+                        case "MetricSpacing":
+                            int spacing;
+                            if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out spacing))
+                                settings.MetricSpacing = Math.Max(0, Math.Min(30, spacing));
+                            break;
+                        case "MoveHotkey":
+                            settings.MoveHotkey = value;
+                            break;
                     }
                 }
             }
@@ -156,7 +187,11 @@ namespace HardwareMonitorOverlay
                     "FontFilePath=" + (settings.FontFilePath ?? string.Empty),
                     "FillColor=" + ColorToHex(settings.FillColor),
                     "InnerOutlineColor=" + ColorToHex(settings.InnerOutlineColor),
-                    "OuterOutlineColor=" + ColorToHex(settings.OuterOutlineColor)
+                    "OuterOutlineColor=" + ColorToHex(settings.OuterOutlineColor),
+                    "ClickThrough=" + (settings.ClickThrough ? "1" : "0"),
+                    "LayoutOrientation=" + settings.LayoutOrientation,
+                    "MetricSpacing=" + settings.MetricSpacing.ToString(CultureInfo.InvariantCulture),
+                    "MoveHotkey=" + (settings.MoveHotkey ?? string.Empty)
                 };
                 File.WriteAllLines(SettingsFile, lines);
             }
