@@ -34,6 +34,7 @@ namespace HardwareMonitorOverlay
         public LayoutOrientation LayoutOrientation { get; set; }
         public int MetricSpacing { get; set; }
         public string MoveHotkey { get; set; }
+        public int TextOpacity { get; set; }
 
         public OverlaySettings()
         {
@@ -51,6 +52,7 @@ namespace HardwareMonitorOverlay
             LayoutOrientation = LayoutOrientation.Horizontal;
             MetricSpacing = 6;
             MoveHotkey = "Ctrl+Alt+M";
+            TextOpacity = 255;
         }
 
         public OverlaySettings Clone()
@@ -163,6 +165,11 @@ namespace HardwareMonitorOverlay
                         case "MoveHotkey":
                             settings.MoveHotkey = value;
                             break;
+                        case "TextOpacity":
+                            int textOpacity;
+                            if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out textOpacity))
+                                settings.TextOpacity = Math.Max(0, Math.Min(255, textOpacity));
+                            break;
                     }
                 }
             }
@@ -191,7 +198,8 @@ namespace HardwareMonitorOverlay
                     "ClickThrough=" + (settings.ClickThrough ? "1" : "0"),
                     "LayoutOrientation=" + settings.LayoutOrientation,
                     "MetricSpacing=" + settings.MetricSpacing.ToString(CultureInfo.InvariantCulture),
-                    "MoveHotkey=" + (settings.MoveHotkey ?? string.Empty)
+                    "MoveHotkey=" + (settings.MoveHotkey ?? string.Empty),
+                    "TextOpacity=" + settings.TextOpacity.ToString(CultureInfo.InvariantCulture)
                 };
                 File.WriteAllLines(SettingsFile, lines);
             }

@@ -508,10 +508,43 @@ namespace HardwareMonitorOverlay
 
         private void DrawStyledText(Graphics graphics, string text, float x, float y, Font font, Color fillColor)
         {
-            DrawTextRing(graphics, text, x, y, font, _settings.OuterOutlineColor, 2);
-            DrawTextRing(graphics, text, x, y, font, _settings.InnerOutlineColor, 1);
-            using (SolidBrush brush = new SolidBrush(fillColor))
-                graphics.DrawString(text, font, brush, new PointF(x, y), StringFormat.GenericTypographic);
+            int opacity = Math.Max(0, Math.Min(255, _settings.TextOpacity));
+            if (opacity >= 255 && _settings.OuterOutlineColor.A >= 255 && _settings.InnerOutlineColor.A >= 255 && fillColor.A >= 255)
+            {
+                DrawTextRing(graphics, text, x, y, font, _settings.OuterOutlineColor, 2);
+                DrawTextRing(graphics, text, x, y, font, _settings.InnerOutlineColor, 1);
+                using (SolidBrush brush = new SolidBrush(fillColor))
+                    graphics.DrawString(text, font, brush, new PointF(x, y), StringFormat.GenericTypographic);
+                return;
+            }
+
+            const int pad = 3;
+            SizeF measured = graphics.MeasureString(text, font, PointF.Empty, StringFormat.GenericTypographic);
+            int width = (int)Math.Ceiling(measured.Width) + pad * 2;
+            int height = (int)Math.Ceiling(measured.Height) + pad * 2;
+            if (width <= 0 || height <= 0) return;
+
+            using (Bitmap textBitmap = new Bitmap(width, height, PixelFormat.Format32bppArgb))
+            {
+                using (Graphics textGraphics = Graphics.FromImage(textBitmap))
+                {
+                    textGraphics.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
+                    textGraphics.SmoothingMode = SmoothingMode.AntiAlias;
+                    textGraphics.Clear(Color.Transparent);
+                    DrawTextRing(textGraphics, text, pad, pad, font, _settings.OuterOutlineColor, 2);
+                    DrawTextRing(textGraphics, text, pad, pad, font, _settings.InnerOutlineColor, 1);
+                    using (SolidBrush brush = new SolidBrush(fillColor))
+                        textGraphics.DrawString(text, font, brush, new PointF(pad, pad), StringFormat.GenericTypographic);
+                }
+
+                ColorMatrix matrix = new ColorMatrix();
+                matrix.Matrix33 = opacity / 255f;
+                using (ImageAttributes attributes = new ImageAttributes())
+                {
+                    attributes.SetColorMatrix(matrix, ColorMatrixFlag.Default, ColorAdjustType.Bitmap);
+                    graphics.DrawImage(textBitmap, new Rectangle((int)Math.Floor(x) - pad, (int)Math.Floor(y) - pad, width, height), 0, 0, width, height, GraphicsUnit.Pixel, attributes);
+                }
+            }
         }
 
         private static void DrawTextRing(Graphics graphics, string text, float x, float y, Font font, Color color, int radius)

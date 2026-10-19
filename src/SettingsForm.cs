@@ -32,6 +32,8 @@ namespace HardwareMonitorOverlay
         private RadioButton _verticalRadio;
         private TrackBar _spacingBar;
         private Label _spacingLabel;
+        private TrackBar _textOpacityBar;
+        private Label _textOpacityLabel;
         private TextBox _hotkeyBox;
         private string _hotkeyText = string.Empty;
         private readonly Action<OverlaySettings> _preview;
@@ -54,7 +56,7 @@ namespace HardwareMonitorOverlay
             MinimizeBox = false;
             ShowInTaskbar = true;
             TopMost = true;
-            ClientSize = new Size(520, 794);
+            ClientSize = new Size(520, 810);
             BackColor = Color.FromArgb(246, 247, 250);
             Font = new Font("Microsoft YaHei UI", 9f, FontStyle.Regular, GraphicsUnit.Point);
             BuildUI();
@@ -280,7 +282,7 @@ namespace HardwareMonitorOverlay
             GroupBox textGroup = new GroupBox();
             textGroup.Text = "文字";
             textGroup.Location = new Point(12, 436);
-            textGroup.Size = new Size(496, 300);
+            textGroup.Size = new Size(496, 316);
             Controls.Add(textGroup);
 
             Label fontLabel = new Label();
@@ -328,30 +330,52 @@ namespace HardwareMonitorOverlay
             AddColorRow(textGroup, "文字填充", 110, out _fillPreview, delegate { PickColor(_settings.FillColor, "选择文字填充颜色", delegate(Color c) { _settings.FillColor = c; UpdatePreviews(); }); });
             AddColorRow(textGroup, "内圈颜色", 148, out _innerPreview, delegate { PickColor(_settings.InnerOutlineColor, "选择内圈颜色", delegate(Color c) { _settings.InnerOutlineColor = c; UpdatePreviews(); }); });
             AddColorRow(textGroup, "外圈颜色", 186, out _outerPreview, delegate { PickColor(_settings.OuterOutlineColor, "选择外圈颜色", delegate(Color c) { _settings.OuterOutlineColor = c; UpdatePreviews(); }); });
+            Label textOpacityLabel = new Label();
+            textOpacityLabel.Text = "字体透明度";
+            textOpacityLabel.Location = new Point(38, 226);
+            textOpacityLabel.AutoSize = true;
+            textGroup.Controls.Add(textOpacityLabel);
+
+            _textOpacityBar = new TrackBar();
+            _textOpacityBar.Minimum = 0;
+            _textOpacityBar.Maximum = 100;
+            _textOpacityBar.TickFrequency = 10;
+            _textOpacityBar.LargeChange = 5;
+            _textOpacityBar.SmallChange = 1;
+            _textOpacityBar.Location = new Point(112, 214);
+            _textOpacityBar.Size = new Size(280, 40);
+            _textOpacityBar.ValueChanged += delegate { _textOpacityLabel.Text = _textOpacityBar.Value + "%"; NotifyPreview(); };
+            textGroup.Controls.Add(_textOpacityBar);
+
+            _textOpacityLabel = new Label();
+            _textOpacityLabel.Location = new Point(398, 226);
+            _textOpacityLabel.Size = new Size(60, 20);
+            _textOpacityLabel.TextAlign = ContentAlignment.MiddleLeft;
+            textGroup.Controls.Add(_textOpacityLabel);
 
             Label hint = new Label();
             hint.Text = "颜色选择器支持常用调色板、屏幕取色，并可调整透明度。";
             hint.ForeColor = Color.FromArgb(90, 90, 90);
-            hint.Location = new Point(38, 234);
+            hint.Location = new Point(38, 262);
             hint.Size = new Size(430, 22);
             textGroup.Controls.Add(hint);
             _clickThroughBox = new CheckBox();
             _clickThroughBox.Text = "鼠标穿透（不挡住游戏点击）";
-            _clickThroughBox.Location = new Point(36, 260);
+            _clickThroughBox.Location = new Point(36, 288);
             _clickThroughBox.AutoSize = true;
             _clickThroughBox.CheckedChanged += delegate { NotifyPreview(); };
             textGroup.Controls.Add(_clickThroughBox);
 
             Button resetButton = new Button();
             resetButton.Text = "恢复默认";
-            resetButton.Location = new Point(16, 750);
+            resetButton.Location = new Point(16, 766);
             resetButton.Size = new Size(100, 32);
             resetButton.Click += delegate { ResetSettings(); };
             Controls.Add(resetButton);
 
             Button cancelButton = new Button();
             cancelButton.Text = "取消";
-            cancelButton.Location = new Point(310, 750);
+            cancelButton.Location = new Point(310, 766);
             cancelButton.Size = new Size(86, 32);
             cancelButton.DialogResult = DialogResult.Cancel;
             Controls.Add(cancelButton);
@@ -359,7 +383,7 @@ namespace HardwareMonitorOverlay
 
             Button okButton = new Button();
             okButton.Text = "确定";
-            okButton.Location = new Point(406, 750);
+            okButton.Location = new Point(406, 766);
             okButton.Size = new Size(86, 32);
             okButton.Click += delegate
             {
@@ -546,6 +570,8 @@ namespace HardwareMonitorOverlay
             _spacingLabel.Text = _spacingBar.Value + " px";
             _hotkeyText = _settings.MoveHotkey ?? string.Empty;
             _hotkeyBox.Text = string.IsNullOrEmpty(_hotkeyText) ? "未设置" : _hotkeyText;
+            _textOpacityBar.Value = Math.Max(0, Math.Min(100, (int)Math.Round(_settings.TextOpacity * 100.0 / 255.0)));
+            _textOpacityLabel.Text = _textOpacityBar.Value + "%";
             _clickThroughBox.Checked = _settings.ClickThrough;
             UpdatePreviews();
             UpdateControlState();
@@ -584,6 +610,7 @@ namespace HardwareMonitorOverlay
             _settings.LayoutOrientation = _verticalRadio.Checked ? LayoutOrientation.Vertical : LayoutOrientation.Horizontal;
             _settings.MetricSpacing = _spacingBar.Value;
             _settings.MoveHotkey = _hotkeyText ?? string.Empty;
+            _settings.TextOpacity = Math.Max(0, Math.Min(255, (int)Math.Round(_textOpacityBar.Value * 255.0 / 100.0)));
             string selectedFont = _fontFamilyBox.SelectedItem as string;
             _settings.FontFamilyName = string.IsNullOrEmpty(selectedFont) ? "Microsoft YaHei UI" : selectedFont;
             if (!_importedFamilies.Contains(_settings.FontFamilyName))
@@ -607,6 +634,7 @@ namespace HardwareMonitorOverlay
             _settings.LayoutOrientation = defaults.LayoutOrientation;
             _settings.MetricSpacing = defaults.MetricSpacing;
             _settings.MoveHotkey = defaults.MoveHotkey;
+            _settings.TextOpacity = defaults.TextOpacity;
             LoadFromSettings();
             NotifyPreview();
         }
