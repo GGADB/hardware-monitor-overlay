@@ -19,6 +19,8 @@ namespace HardwareMonitorOverlay
         public string BackgroundImagePath { get; set; }
         public int BackgroundOpacity { get; set; }
         public float FontSize { get; set; }
+        public string FontFamilyName { get; set; }
+        public string FontFilePath { get; set; }
         public Color FillColor { get; set; }
         public Color InnerOutlineColor { get; set; }
         public Color OuterOutlineColor { get; set; }
@@ -30,6 +32,8 @@ namespace HardwareMonitorOverlay
             BackgroundImagePath = string.Empty;
             BackgroundOpacity = 180;
             FontSize = 7.5f;
+            FontFamilyName = "Microsoft YaHei UI";
+            FontFilePath = string.Empty;
             FillColor = Color.FromArgb(255, 255, 255, 255);
             InnerOutlineColor = Color.FromArgb(255, 0, 0, 0);
             OuterOutlineColor = Color.FromArgb(255, 0, 0, 0);
@@ -53,6 +57,15 @@ namespace HardwareMonitorOverlay
             }
         }
 
+        public static string FontDirectory
+        {
+            get
+            {
+                string dir = Path.Combine(DataDirectory, "fonts");
+                Directory.CreateDirectory(dir);
+                return dir;
+            }
+        }
         public static string SettingsFile
         {
             get { return Path.Combine(DataDirectory, "settings.ini"); }
@@ -64,6 +77,10 @@ namespace HardwareMonitorOverlay
             return Path.Combine(DataDirectory, "background" + extension.ToLowerInvariant());
         }
 
+        public static string GetFontPath(string fileName)
+        {
+            return Path.Combine(FontDirectory, fileName);
+        }
         public static OverlaySettings Load()
         {
             OverlaySettings settings = new OverlaySettings();
@@ -98,7 +115,13 @@ namespace HardwareMonitorOverlay
                         case "FontSize":
                             float size;
                             if (float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out size))
-                                settings.FontSize = Math.Max(6f, Math.Min(20f, size));
+                                settings.FontSize = Math.Max(4f, Math.Min(48f, size));
+                            break;
+                        case "FontFamilyName":
+                            if (!string.IsNullOrEmpty(value)) settings.FontFamilyName = value;
+                            break;
+                        case "FontFilePath":
+                            settings.FontFilePath = value;
                             break;
                         case "FillColor":
                             settings.FillColor = ColorFromHex(value, settings.FillColor);
@@ -129,6 +152,8 @@ namespace HardwareMonitorOverlay
                     "BackgroundImagePath=" + (settings.BackgroundImagePath ?? string.Empty),
                     "BackgroundOpacity=" + settings.BackgroundOpacity.ToString(CultureInfo.InvariantCulture),
                     "FontSize=" + settings.FontSize.ToString(CultureInfo.InvariantCulture),
+                    "FontFamilyName=" + (settings.FontFamilyName ?? string.Empty),
+                    "FontFilePath=" + (settings.FontFilePath ?? string.Empty),
                     "FillColor=" + ColorToHex(settings.FillColor),
                     "InnerOutlineColor=" + ColorToHex(settings.InnerOutlineColor),
                     "OuterOutlineColor=" + ColorToHex(settings.OuterOutlineColor)

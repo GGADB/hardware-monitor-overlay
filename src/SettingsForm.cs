@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
+using System.Drawing.Text;
 using System.IO;
 using System.Windows.Forms;
 
@@ -18,10 +20,14 @@ namespace HardwareMonitorOverlay
         private Button _clearImageButton;
         private TrackBar _backgroundOpacityBar;
         private Label _backgroundOpacityLabel;
+        private ComboBox _fontFamilyBox;
+        private Button _importFontButton;
         private NumericUpDown _fontSizeBox;
         private ColorSwatchPanel _fillPreview;
         private ColorSwatchPanel _innerPreview;
         private ColorSwatchPanel _outerPreview;
+        private PrivateFontCollection _privateFonts;
+        private readonly HashSet<string> _importedFamilies = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         public OverlaySettings ResultSettings
         {
@@ -38,11 +44,19 @@ namespace HardwareMonitorOverlay
             MinimizeBox = false;
             ShowInTaskbar = true;
             TopMost = true;
-            ClientSize = new Size(520, 610);
+            ClientSize = new Size(520, 680);
             BackColor = Color.FromArgb(246, 247, 250);
             Font = new Font("Microsoft YaHei UI", 9f, FontStyle.Regular, GraphicsUnit.Point);
             BuildUI();
             LoadFromSettings();
+            FormClosed += delegate
+            {
+                if (_privateFonts != null)
+                {
+                    _privateFonts.Dispose();
+                    _privateFonts = null;
+                }
+            };
         }
 
         private void BuildUI()
@@ -144,51 +158,70 @@ namespace HardwareMonitorOverlay
             GroupBox textGroup = new GroupBox();
             textGroup.Text = "文字";
             textGroup.Location = new Point(12, 274);
-            textGroup.Size = new Size(496, 250);
+            textGroup.Size = new Size(496, 300);
             Controls.Add(textGroup);
+
+            Label fontLabel = new Label();
+            fontLabel.Text = "字体";
+            fontLabel.Location = new Point(38, 30);
+            fontLabel.AutoSize = true;
+            textGroup.Controls.Add(fontLabel);
+
+            _fontFamilyBox = new ComboBox();
+            _fontFamilyBox.Location = new Point(112, 26);
+            _fontFamilyBox.Size = new Size(250, 26);
+            _fontFamilyBox.DropDownStyle = ComboBoxStyle.DropDownList;
+            textGroup.Controls.Add(_fontFamilyBox);
+
+            _importFontButton = new Button();
+            _importFontButton.Text = "导入字体...";
+            _importFontButton.Location = new Point(370, 24);
+            _importFontButton.Size = new Size(110, 30);
+            _importFontButton.Click += delegate { ImportFont(); };
+            textGroup.Controls.Add(_importFontButton);
 
             Label fontSizeLabel = new Label();
             fontSizeLabel.Text = "字体大小";
-            fontSizeLabel.Location = new Point(38, 30);
+            fontSizeLabel.Location = new Point(38, 70);
             fontSizeLabel.AutoSize = true;
             textGroup.Controls.Add(fontSizeLabel);
 
             _fontSizeBox = new NumericUpDown();
-            _fontSizeBox.Location = new Point(112, 26);
+            _fontSizeBox.Location = new Point(112, 66);
             _fontSizeBox.Size = new Size(90, 24);
-            _fontSizeBox.Minimum = 6m;
-            _fontSizeBox.Maximum = 20m;
+            _fontSizeBox.Minimum = 4m;
+            _fontSizeBox.Maximum = 48m;
             _fontSizeBox.DecimalPlaces = 1;
             _fontSizeBox.Increment = 0.5m;
             textGroup.Controls.Add(_fontSizeBox);
 
             Label ptLabel = new Label();
-            ptLabel.Text = "pt";
-            ptLabel.Location = new Point(208, 30);
+            ptLabel.Text = "pt（4–48）";
+            ptLabel.Location = new Point(208, 70);
             ptLabel.AutoSize = true;
             textGroup.Controls.Add(ptLabel);
 
-            AddColorRow(textGroup, "文字填充", 72, out _fillPreview, delegate { PickColor(_settings.FillColor, "选择文字填充颜色", delegate(Color c) { _settings.FillColor = c; UpdatePreviews(); }); });
-            AddColorRow(textGroup, "内圈颜色", 110, out _innerPreview, delegate { PickColor(_settings.InnerOutlineColor, "选择内圈颜色", delegate(Color c) { _settings.InnerOutlineColor = c; UpdatePreviews(); }); });
-            AddColorRow(textGroup, "外圈颜色", 148, out _outerPreview, delegate { PickColor(_settings.OuterOutlineColor, "选择外圈颜色", delegate(Color c) { _settings.OuterOutlineColor = c; UpdatePreviews(); }); });
+            AddColorRow(textGroup, "文字填充", 110, out _fillPreview, delegate { PickColor(_settings.FillColor, "选择文字填充颜色", delegate(Color c) { _settings.FillColor = c; UpdatePreviews(); }); });
+            AddColorRow(textGroup, "内圈颜色", 148, out _innerPreview, delegate { PickColor(_settings.InnerOutlineColor, "选择内圈颜色", delegate(Color c) { _settings.InnerOutlineColor = c; UpdatePreviews(); }); });
+            AddColorRow(textGroup, "外圈颜色", 186, out _outerPreview, delegate { PickColor(_settings.OuterOutlineColor, "选择外圈颜色", delegate(Color c) { _settings.OuterOutlineColor = c; UpdatePreviews(); }); });
 
             Label hint = new Label();
             hint.Text = "颜色选择器支持常用调色板、屏幕取色，并可调整透明度。";
             hint.ForeColor = Color.FromArgb(90, 90, 90);
-            hint.Location = new Point(38, 202);
+            hint.Location = new Point(38, 234);
             hint.Size = new Size(430, 22);
             textGroup.Controls.Add(hint);
 
             Button resetButton = new Button();
             resetButton.Text = "恢复默认";
-            resetButton.Location = new Point(16, 555);
+            resetButton.Location = new Point(16, 625);
             resetButton.Size = new Size(100, 32);
             resetButton.Click += delegate { ResetSettings(); };
             Controls.Add(resetButton);
 
             Button cancelButton = new Button();
             cancelButton.Text = "取消";
-            cancelButton.Location = new Point(310, 555);
+            cancelButton.Location = new Point(310, 625);
             cancelButton.Size = new Size(86, 32);
             cancelButton.DialogResult = DialogResult.Cancel;
             Controls.Add(cancelButton);
@@ -196,7 +229,7 @@ namespace HardwareMonitorOverlay
 
             Button okButton = new Button();
             okButton.Text = "确定";
-            okButton.Location = new Point(406, 555);
+            okButton.Location = new Point(406, 625);
             okButton.Size = new Size(86, 32);
             okButton.Click += delegate
             {
@@ -266,6 +299,101 @@ namespace HardwareMonitorOverlay
             }
         }
 
+        private void ImportFont()
+        {
+            using (OpenFileDialog dialog = new OpenFileDialog())
+            {
+                dialog.Title = "导入字体";
+                dialog.Filter = "字体文件|*.ttf;*.otf;*.ttc|所有文件|*.*";
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                try
+                {
+                    string fileName = Path.GetFileName(dialog.FileName);
+                    string destination = SettingsStore.GetFontPath(fileName);
+                    if (!string.Equals(Path.GetFullPath(dialog.FileName), Path.GetFullPath(destination), StringComparison.OrdinalIgnoreCase))
+                        File.Copy(dialog.FileName, destination, true);
+
+                    PrivateFontCollection collection = new PrivateFontCollection();
+                    collection.AddFontFile(destination);
+                    if (collection.Families.Length == 0)
+                    {
+                        collection.Dispose();
+                        MessageBox.Show(this, "这个字体文件没有可用的字体族。", "导入字体", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        return;
+                    }
+
+                    if (_privateFonts != null)
+                    {
+                        _privateFonts.Dispose();
+                        _privateFonts = null;
+                    }
+                    _privateFonts = collection;
+                    _settings.FontFilePath = destination;
+                    PopulateFontFamilies(destination);
+                    string first = collection.Families[0].Name;
+                    _settings.FontFamilyName = first;
+                    SelectFontFamily(first);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(this, "无法导入字体：\r\n" + ex.Message, "导入字体", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                }
+            }
+        }
+
+        private void PopulateFontFamilies(string importPath)
+        {
+            HashSet<string> names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            _fontFamilyBox.BeginUpdate();
+            _fontFamilyBox.Items.Clear();
+            _importedFamilies.Clear();
+
+            foreach (FontFamily family in FontFamily.Families)
+            {
+                if (names.Add(family.Name)) _fontFamilyBox.Items.Add(family.Name);
+            }
+
+            if (!string.IsNullOrEmpty(importPath) && File.Exists(importPath))
+            {
+                try
+                {
+                    if (_privateFonts == null)
+                    {
+                        _privateFonts = new PrivateFontCollection();
+                        _privateFonts.AddFontFile(importPath);
+                    }
+                    foreach (FontFamily family in _privateFonts.Families)
+                    {
+                        if (names.Add(family.Name)) _fontFamilyBox.Items.Add(family.Name);
+                        _importedFamilies.Add(family.Name);
+                    }
+                }
+                catch
+                {
+                    _settings.FontFilePath = string.Empty;
+                }
+            }
+            else if (!string.IsNullOrEmpty(importPath))
+            {
+                _settings.FontFilePath = string.Empty;
+            }
+
+            _fontFamilyBox.EndUpdate();
+
+            string select = _settings.FontFamilyName;
+            if (string.IsNullOrEmpty(select) || !_fontFamilyBox.Items.Contains(select))
+                select = _fontFamilyBox.Items.Contains("Microsoft YaHei UI") ? "Microsoft YaHei UI" : (_fontFamilyBox.Items.Count > 0 ? (string)_fontFamilyBox.Items[0] : string.Empty);
+            SelectFontFamily(select);
+        }
+
+        private void SelectFontFamily(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return;
+            int index = _fontFamilyBox.FindStringExact(name);
+            if (index >= 0) _fontFamilyBox.SelectedIndex = index;
+            else if (_fontFamilyBox.Items.Count > 0) _fontFamilyBox.SelectedIndex = 0;
+        }
+
         private void LoadFromSettings()
         {
             _transparentRadio.Checked = _settings.BackgroundMode == BackgroundMode.Transparent;
@@ -274,7 +402,8 @@ namespace HardwareMonitorOverlay
             _backgroundOpacityBar.Value = Math.Max(0, Math.Min(100, (int)Math.Round(_settings.BackgroundOpacity * 100.0 / 255.0)));
             _backgroundOpacityLabel.Text = _backgroundOpacityBar.Value + "%";
             _imagePathBox.Text = _settings.BackgroundImagePath ?? string.Empty;
-            _fontSizeBox.Value = (decimal)Math.Max(6f, Math.Min(20f, _settings.FontSize));
+            _fontSizeBox.Value = (decimal)Math.Max(4f, Math.Min(48f, _settings.FontSize));
+            PopulateFontFamilies(_settings.FontFilePath);
             UpdatePreviews();
             UpdateControlState();
         }
@@ -307,6 +436,10 @@ namespace HardwareMonitorOverlay
             _settings.BackgroundOpacity = Math.Max(0, Math.Min(255, (int)Math.Round(_backgroundOpacityBar.Value * 255.0 / 100.0)));
             _settings.FontSize = (float)_fontSizeBox.Value;
             _settings.BackgroundImagePath = _imagePathBox.Text;
+            string selectedFont = _fontFamilyBox.SelectedItem as string;
+            _settings.FontFamilyName = string.IsNullOrEmpty(selectedFont) ? "Microsoft YaHei UI" : selectedFont;
+            if (!_importedFamilies.Contains(_settings.FontFamilyName))
+                _settings.FontFilePath = string.Empty;
         }
 
         private void ResetSettings()
@@ -317,6 +450,8 @@ namespace HardwareMonitorOverlay
             _settings.BackgroundImagePath = defaults.BackgroundImagePath;
             _settings.BackgroundOpacity = defaults.BackgroundOpacity;
             _settings.FontSize = defaults.FontSize;
+            _settings.FontFamilyName = defaults.FontFamilyName;
+            _settings.FontFilePath = defaults.FontFilePath;
             _settings.FillColor = defaults.FillColor;
             _settings.InnerOutlineColor = defaults.InnerOutlineColor;
             _settings.OuterOutlineColor = defaults.OuterOutlineColor;

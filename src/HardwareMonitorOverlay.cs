@@ -103,6 +103,7 @@ namespace HardwareMonitorOverlay
         private Font _labelFont;
         private Font _valueFont;
         private Image _backgroundImage;
+        private PrivateFontCollection _privateFonts;
         private float _labelWidth;
         private float _tempWidth;
         private float _loadWidth;
@@ -110,9 +111,9 @@ namespace HardwareMonitorOverlay
         private float _padding;
         private float _gap;
 
-        private readonly string[] _metricNames = new string[] { "CPU", "GPU", "RAM", "SSD1", "SSD2" };
-        private readonly float?[] _temperatures = new float?[5];
-        private readonly float?[] _loads = new float?[5];
+        private readonly string[] _metricNames = new string[] { "CPU", "GPU", "RAM", "SSD1", "SSD2", "FPS" };
+        private readonly float?[] _temperatures = new float?[6];
+        private readonly float?[] _loads = new float?[6];
 
         public OverlayForm(bool openSettingsOnShow, bool openColorPickerOnShow)
         {
@@ -254,11 +255,51 @@ namespace HardwareMonitorOverlay
         {
             if (_labelFont != null) _labelFont.Dispose();
             if (_valueFont != null) _valueFont.Dispose();
-            float size = Math.Max(6f, Math.Min(20f, _settings.FontSize));
-            _labelFont = new Font("Microsoft YaHei UI", size, FontStyle.Bold, GraphicsUnit.Point);
-            _valueFont = new Font("Consolas", size, FontStyle.Bold, GraphicsUnit.Point);
+            if (_privateFonts != null) { _privateFonts.Dispose(); _privateFonts = null; }
+
+            float size = Math.Max(4f, Math.Min(48f, _settings.FontSize));
+            FontFamily importedFamily = null;
+            if (!string.IsNullOrEmpty(_settings.FontFilePath) && File.Exists(_settings.FontFilePath))
+            {
+                try
+                {
+                    _privateFonts = new PrivateFontCollection();
+                    _privateFonts.AddFontFile(_settings.FontFilePath);
+                    importedFamily = _privateFonts.Families.FirstOrDefault(f => string.Equals(f.Name, _settings.FontFamilyName, StringComparison.OrdinalIgnoreCase));
+                    if (importedFamily == null) importedFamily = _privateFonts.Families.FirstOrDefault();
+                }
+                catch
+                {
+                    if (_privateFonts != null) { _privateFonts.Dispose(); _privateFonts = null; }
+                    importedFamily = null;
+                }
+            }
+
+            string familyName = string.IsNullOrEmpty(_settings.FontFamilyName) ? "Microsoft YaHei UI" : _settings.FontFamilyName;
+            _labelFont = CreateFont(importedFamily, familyName, size, FontStyle.Bold);
+            _valueFont = CreateFont(importedFamily, familyName, size, FontStyle.Bold);
         }
 
+        private static Font CreateFont(FontFamily importedFamily, string familyName, float size, FontStyle style)
+        {
+            try
+            {
+                if (importedFamily != null) return new Font(importedFamily, size, style, GraphicsUnit.Point);
+                return new Font(familyName, size, style, GraphicsUnit.Point);
+            }
+            catch
+            {
+                try
+                {
+                    if (importedFamily != null) return new Font(importedFamily, size, FontStyle.Regular, GraphicsUnit.Point);
+                    return new Font(familyName, size, FontStyle.Regular, GraphicsUnit.Point);
+                }
+                catch
+                {
+                    return new Font("Microsoft YaHei UI", size, FontStyle.Regular, GraphicsUnit.Point);
+                }
+            }
+        }
         private void RecalculateLayout()
         {
             using (Bitmap bitmap = new Bitmap(1, 1))
@@ -364,13 +405,14 @@ namespace HardwareMonitorOverlay
             for (int i = 0; i < _metricNames.Length; i++)
             {
                 DrawStyledText(graphics, _metricNames[i], _padding, y, _labelFont, _settings.FillColor);
-                DrawStyledText(graphics, FormatTemperature(_temperatures[i]), _padding + _labelWidth + _gap, y, _valueFont, TemperatureColor(_temperatures[i], i));
+                string valueText = i == 5 ? FormatFps(_temperatures[i]) : FormatTemperature(_temperatures[i]);
+                Color valueColor = i == 5 ? _settings.FillColor : TemperatureColor(_temperatures[i], i);
+                DrawStyledText(graphics, valueText, _padding + _labelWidth + _gap, y, _valueFont, valueColor);
                 if (i < 3)
                     DrawStyledText(graphics, FormatLoad(_loads[i]), _padding + _labelWidth + _gap + _tempWidth + _gap, y, _valueFont, LoadColor(_loads[i]));
                 y += _rowHeight;
             }
         }
-
         private void DrawStyledText(Graphics graphics, string text, float x, float y, Font font, Color fillColor)
         {
             DrawTextRing(graphics, text, x, y, font, _settings.OuterOutlineColor, 2);
@@ -414,6 +456,10 @@ namespace HardwareMonitorOverlay
         private static string FormatLoad(float? value)
         {
             return value.HasValue ? value.Value.ToString("0") + "%" : "--";
+        }
+        private static string FormatFps(float? value)
+        {
+            return value.HasValue ? value.Value.ToString("0") : "--";
         }
 
         private Color TemperatureColor(float? value, int index)
@@ -724,6 +770,14 @@ namespace HardwareMonitorOverlay
             return sensor == null ? (float?)null : sensor.Value;
         }
 
+        private float? ReadFps()
+        {
+            if (_rtss == null) return null;
+            uint processId = 0;
+            IntPtr foreground = GetForegroundWindow();
+            if (foreground != IntPtr.Zero) GetWindowThreadProcessId(foreground, out processId);
+            return _rtss.ReadForegroundFps(processId);
+        }
         private void UpdateValues()
         {
             FindSsdHardware();
@@ -736,6 +790,8 @@ namespace HardwareMonitorOverlay
             _loads[2] = MemoryLoad();
             _temperatures[3] = StorageTemperature(_ssd1);
             _temperatures[4] = StorageTemperature(_ssd2);
+            _temperatures[5] = ReadFps();
+            _loads[5] = null;
             UpdateRtssOsd();
         }
 
@@ -747,7 +803,8 @@ namespace HardwareMonitorOverlay
             text.AppendLine("GPU " + FormatOsdTemperature(_temperatures[1]) + " " + FormatLoad(_loads[1]));
             text.AppendLine("RAM " + FormatOsdTemperature(_temperatures[2]) + " " + FormatLoad(_loads[2]));
             text.AppendLine("SSD1 " + FormatOsdTemperature(_temperatures[3]));
-            text.Append("SSD2 " + FormatOsdTemperature(_temperatures[4]));
+            text.AppendLine("SSD2 " + FormatOsdTemperature(_temperatures[4]));
+            text.Append("FPS " + FormatFps(_temperatures[5]));
             _rtss.Update(text.ToString());
             if (_rtssStatusItem != null)
             {
@@ -919,6 +976,42 @@ namespace HardwareMonitorOverlay
             }
             catch { Disconnect(); }
         }
+        public float? ReadForegroundFps(uint foregroundProcessId)
+        {
+            if (!_connected && !TryConnect()) return null;
+            try
+            {
+                int appEntrySize = Marshal.ReadInt32(_view, 8);
+                int appArrayOffset = Marshal.ReadInt32(_view, 12);
+                int appArraySize = Marshal.ReadInt32(_view, 16);
+                if (appEntrySize < 300 || appEntrySize > 200000 || appArraySize <= 0 || appArraySize > 4096) return null;
+                uint target = foregroundProcessId;
+                uint ownProcessId = (uint)Process.GetCurrentProcess().Id;
+                if (target == 0 || target == ownProcessId)
+                {
+                    int lastForegroundProcessId = Marshal.ReadInt32(_view, 68);
+                    if (lastForegroundProcessId > 0) target = (uint)lastForegroundProcessId;
+                }
+                if (target == 0) return null;
+                long baseAddress = _view.ToInt64();
+                for (int i = 0; i < appArraySize; i++)
+                {
+                    IntPtr entry = new IntPtr(baseAddress + appArrayOffset + (long)i * appEntrySize);
+                    int processId = Marshal.ReadInt32(entry, 0);
+                    if (processId <= 0 || (uint)processId != target) continue;
+                    int time0 = Marshal.ReadInt32(entry, 268);
+                    int time1 = Marshal.ReadInt32(entry, 272);
+                    int frames = Marshal.ReadInt32(entry, 276);
+                    int frameTime = Marshal.ReadInt32(entry, 280);
+                    if (frameTime > 0) return 1000000f / frameTime;
+                    if (time0 > 0 && time1 > time0 && frames > 0) return 1000f * frames / (time1 - time0);
+                    return null;
+                }
+            }
+            catch { Disconnect(); }
+            return null;
+        }
+
         private bool TryConnect()
         {
             Disconnect();
