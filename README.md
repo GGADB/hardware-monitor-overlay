@@ -58,7 +58,7 @@ powershell -ExecutionPolicy Bypass -File src/build.ps1
 
 前台应用帧率由内置的 PresentMon 2.6.0 采集，无需单独安装 RTSS。没有可采集的帧数据时显示 `--`。
 
-RTSS 仅用于可选的游戏内 OSD，不再是 FPS 的必需依赖。
+程序不再依赖 RTSS：悬浮面板本身就是游戏内叠加层，帧率由 PresentMon 直接采集。
 
 ## 说明
 

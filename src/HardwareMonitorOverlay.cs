@@ -44,7 +44,6 @@ namespace HardwareMonitorOverlay
         private const int HT_CAPTION = 0x2;
         private const int ULW_ALPHA = 0x02;
         private const byte AC_SRC_ALPHA = 0x01;
-        private const int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
         private const int GWL_EXSTYLE = -20;
         private const int WS_EX_TRANSPARENT = 0x00000020;
 
@@ -55,13 +54,7 @@ namespace HardwareMonitorOverlay
         [DllImport("user32.dll")]
         private static extern IntPtr GetForegroundWindow();
         [DllImport("user32.dll")]
-        private static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
-        [DllImport("user32.dll")]
         private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
-        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-        private static extern int GetClassName(IntPtr hWnd, StringBuilder className, int maxCount);
-        [DllImport("dwmapi.dll")]
-        private static extern int DwmGetWindowAttribute(IntPtr hwnd, int attribute, out RECT rect, int size);
         [DllImport("user32.dll")]
         private static extern IntPtr GetDC(IntPtr hWnd);
         [DllImport("user32.dll")]
@@ -84,9 +77,6 @@ namespace HardwareMonitorOverlay
         private static extern short GetAsyncKeyState(int vKey);
 
         [StructLayout(LayoutKind.Sequential)]
-        private struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
-
-        [StructLayout(LayoutKind.Sequential)]
         private struct POINT { public int X; public int Y; }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -97,20 +87,16 @@ namespace HardwareMonitorOverlay
 
         private Computer _computer;
         private WinFormsTimer _timer;
-        private WinFormsTimer _fullscreenTimer;
-        private NotifyIcon _tray;
+       private NotifyIcon _tray;
         private ToolStripMenuItem _autoStartItem;
-        private ToolStripMenuItem _rtssStatusItem;
-        private ToolStripMenuItem _clickThroughItem;
+       private ToolStripMenuItem _clickThroughItem;
         private WinFormsTimer _hotkeyTimer;
         private HotkeySetting _moveHotkey;
         private bool _moveHotkeyHeld;
-        private RtssOsdWriter _rtss;
-        private PresentMonFpsProvider _presentMon;
+       private PresentMonFpsProvider _presentMon;
         private IHardware _ssd1;
         private IHardware _ssd2;
-        private bool _panelHidden;
-        private readonly bool _openSettingsOnShow;
+       private readonly bool _openSettingsOnShow;
         private readonly bool _openColorPickerOnShow;
         private OverlaySettings _settings;
         private Font _labelFont;
@@ -164,10 +150,6 @@ namespace HardwareMonitorOverlay
             FormClosed += delegate { DisposeAll(); };
 
             StartMonitoring();
-            _fullscreenTimer = new WinFormsTimer();
-            _fullscreenTimer.Interval = 1000;
-            _fullscreenTimer.Tick += delegate { CheckFullscreen(); };
-            _fullscreenTimer.Start();
 
             _hotkeyTimer = new WinFormsTimer();
             _hotkeyTimer.Interval = 100;
@@ -239,9 +221,6 @@ namespace HardwareMonitorOverlay
             _autoStartItem.CheckOnClick = true;
             _autoStartItem.Click += delegate { ToggleAutoStart(); };
             menu.Items.Add(_autoStartItem);
-            _rtssStatusItem = new ToolStripMenuItem("游戏内覆盖：检测中…");
-            _rtssStatusItem.Enabled = false;
-            menu.Items.Add(_rtssStatusItem);
             menu.Opening += delegate { _autoStartItem.Checked = AutoStartTaskExists(); _clickThroughItem.Checked = _settings.ClickThrough; };
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("退出", null, delegate { Close(); });
@@ -645,61 +624,14 @@ namespace HardwareMonitorOverlay
             return (GetAsyncKeyState(virtualKey) & 0x8000) != 0;
         }
 
-        private void CheckFullscreen()
-        {
-            if (_rtss == null || !_rtss.IsConnected)
-            {
-                ShowPanel();
-                return;
-            }
-
-            IntPtr foreground = GetForegroundWindow();
-            if (foreground == IntPtr.Zero || foreground == Handle)
-            {
-                ShowPanel();
-                return;
-            }
-
-            RECT rect;
-            bool gotBounds = DwmGetWindowAttribute(foreground, DWMWA_EXTENDED_FRAME_BOUNDS, out rect, Marshal.SizeOf(typeof(RECT))) == 0;
-            if (!gotBounds && !GetWindowRect(foreground, out rect))
-            {
-                ShowPanel();
-                return;
-            }
-
-            Screen target = Screen.FromHandle(foreground);
-            Rectangle screen = target == null ? Screen.PrimaryScreen.Bounds : target.Bounds;
-            bool fullscreen = rect.Left <= screen.Left + 2 && rect.Top <= screen.Top + 2 && rect.Right >= screen.Right - 2 && rect.Bottom >= screen.Bottom - 2;
-            if (fullscreen)
-            {
-                StringBuilder className = new StringBuilder(128);
-                GetClassName(foreground, className, className.Capacity);
-                string cls = className.ToString();
-                if (cls == "Progman" || cls == "WorkerW" || cls == "Shell_TrayWnd" || cls == "Shell_SecondaryTrayWnd" || cls == "NotifyIconOverflowWindow") fullscreen = false;
-            }
-
-            if (fullscreen) HidePanel(); else ShowPanel();
-        }
-
         private void ShowPanel()
         {
-            if (_panelHidden || !Visible)
+            if (!Visible)
             {
-                _panelHidden = false;
                 ShowQuietly();
                 Visible = true;
                 TopMost = true;
                 RenderToLayeredWindow();
-            }
-        }
-
-        private void HidePanel()
-        {
-            if (!_panelHidden)
-            {
-                _panelHidden = true;
-                Visible = false;
             }
         }
 
@@ -711,10 +643,8 @@ namespace HardwareMonitorOverlay
         private void DisposeAll()
         {
             if (_timer != null) { _timer.Stop(); _timer.Dispose(); _timer = null; }
-            if (_fullscreenTimer != null) { _fullscreenTimer.Stop(); _fullscreenTimer.Dispose(); _fullscreenTimer = null; }
             if (_hotkeyTimer != null) { _hotkeyTimer.Stop(); _hotkeyTimer.Dispose(); _hotkeyTimer = null; }
             if (_computer != null) { try { _computer.Close(); } catch { } _computer = null; }
-            if (_rtss != null) { _rtss.Dispose(); _rtss = null; }
             if (_presentMon != null) { _presentMon.Dispose(); _presentMon = null; }
             if (_tray != null) { _tray.Visible = false; _tray.Dispose(); _tray = null; }
             if (_backgroundImage != null) { _backgroundImage.Dispose(); _backgroundImage = null; }
@@ -761,7 +691,6 @@ namespace HardwareMonitorOverlay
         {
             try
             {
-                _rtss = new RtssOsdWriter();
                 _presentMon = new PresentMonFpsProvider();
                 _presentMon.Start();
                 _computer = new Computer();
@@ -927,7 +856,6 @@ namespace HardwareMonitorOverlay
                 if (fps.HasValue) return fps;
             }
 
-            if (_rtss != null) return _rtss.ReadForegroundFps(processId);
             return null;
         }
         private void UpdateValues()
@@ -944,31 +872,8 @@ namespace HardwareMonitorOverlay
             _temperatures[4] = StorageTemperature(_ssd2);
             _temperatures[5] = ReadFps();
             _loads[5] = null;
-            UpdateRtssOsd();
         }
 
-        private void UpdateRtssOsd()
-        {
-            if (_rtss == null) return;
-            StringBuilder text = new StringBuilder();
-            text.AppendLine("CPU " + FormatOsdTemperature(_temperatures[0]) + " " + FormatLoad(_loads[0]));
-            text.AppendLine("GPU " + FormatOsdTemperature(_temperatures[1]) + " " + FormatLoad(_loads[1]));
-            text.AppendLine("RAM " + FormatOsdTemperature(_temperatures[2]) + " " + FormatLoad(_loads[2]));
-            text.AppendLine("SSD1 " + FormatOsdTemperature(_temperatures[3]));
-            text.AppendLine("SSD2 " + FormatOsdTemperature(_temperatures[4]));
-            text.Append("FPS " + FormatFps(_temperatures[5]));
-            _rtss.Update(text.ToString());
-            if (_rtssStatusItem != null)
-            {
-                string status = _rtss.IsConnected ? "游戏内覆盖：已连接" : "游戏内覆盖：等待 RTSS";
-                if (_rtssStatusItem.Text != status) _rtssStatusItem.Text = status;
-            }
-        }
-
-        private static string FormatOsdTemperature(float? value)
-        {
-            return value.HasValue ? value.Value.ToString("0.0") + "C" : "--";
-        }
         private const string StartupTaskName = "HardwareMonitorOverlay";
 
         private void ToggleAutoStart()
@@ -1063,174 +968,5 @@ namespace HardwareMonitorOverlay
             }
         }
 
-    }
-
-    internal sealed class RtssOsdWriter : IDisposable
-    {
-        private const uint FileMapAllAccess = 0x000F001F;
-        private const string MapName = "RTSSSharedMemoryV2";
-        private const string Owner = "HardwareMonitorOverlay";
-
-        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-        private static extern IntPtr OpenFileMapping(uint desiredAccess, bool inheritHandle, string name);
-        [DllImport("kernel32.dll", SetLastError = true)]
-        private static extern IntPtr MapViewOfFile(IntPtr fileMapping, uint desiredAccess, uint offsetHigh, uint offsetLow, UIntPtr bytesToMap);
-        [DllImport("kernel32.dll", SetLastError = true)]
-        private static extern bool UnmapViewOfFile(IntPtr baseAddress);
-        [DllImport("kernel32.dll", SetLastError = true)]
-        private static extern bool CloseHandle(IntPtr handle);
-
-        private IntPtr _mapping;
-        private IntPtr _view;
-        private int _slot;
-        private bool _connected;
-
-        public bool IsConnected { get { return _connected; } }
-
-        public void Update(string text)
-        {
-            if (!_connected && !TryConnect()) return;
-            try
-            {
-                int version = Marshal.ReadInt32(_view, 4);
-                int entrySize = Marshal.ReadInt32(_view, 20);
-                int arrayOffset = Marshal.ReadInt32(_view, 24);
-                int arraySize = Marshal.ReadInt32(_view, 28);
-                if (version < 0x00020000 || entrySize < 512 || arraySize <= 1) { Disconnect(); return; }
-
-                if (_slot == 0)
-                {
-                    for (int i = 1; i < arraySize; i++)
-                    {
-                        IntPtr entry = new IntPtr(_view.ToInt64() + arrayOffset + i * entrySize);
-                        string owner = ReadAnsi(entry, 256, 256);
-                        if (owner.Length == 0)
-                        {
-                            WriteAnsi(entry, 256, 256, Owner);
-                            _slot = i;
-                            break;
-                        }
-                        if (owner == Owner)
-                        {
-                            _slot = i;
-                            break;
-                        }
-                    }
-                }
-
-                if (_slot == 0) return;
-                IntPtr osdEntry = new IntPtr(_view.ToInt64() + arrayOffset + _slot * entrySize);
-                int textOffset = version >= 0x00020007 ? 512 : 0;
-                int textLength = version >= 0x00020007 ? 4095 : 255;
-                WriteAnsi(osdEntry, textOffset, textLength, text);
-                int frame = Marshal.ReadInt32(_view, 32);
-                Marshal.WriteInt32(_view, 32, frame + 1);
-            }
-            catch { Disconnect(); }
-        }
-        public float? ReadForegroundFps(uint foregroundProcessId)
-        {
-            if (!_connected && !TryConnect()) return null;
-            try
-            {
-                int appEntrySize = Marshal.ReadInt32(_view, 8);
-                int appArrayOffset = Marshal.ReadInt32(_view, 12);
-                int appArraySize = Marshal.ReadInt32(_view, 16);
-                if (appEntrySize < 300 || appEntrySize > 200000 || appArraySize <= 0 || appArraySize > 4096) return null;
-                uint target = foregroundProcessId;
-                uint ownProcessId = (uint)Process.GetCurrentProcess().Id;
-                if (target == 0 || target == ownProcessId)
-                {
-                    int lastForegroundProcessId = Marshal.ReadInt32(_view, 68);
-                    if (lastForegroundProcessId > 0) target = (uint)lastForegroundProcessId;
-                }
-                if (target == 0) return null;
-                long baseAddress = _view.ToInt64();
-                for (int i = 0; i < appArraySize; i++)
-                {
-                    IntPtr entry = new IntPtr(baseAddress + appArrayOffset + (long)i * appEntrySize);
-                    int processId = Marshal.ReadInt32(entry, 0);
-                    if (processId <= 0 || (uint)processId != target) continue;
-                    int time0 = Marshal.ReadInt32(entry, 268);
-                    int time1 = Marshal.ReadInt32(entry, 272);
-                    int frames = Marshal.ReadInt32(entry, 276);
-                    int frameTime = Marshal.ReadInt32(entry, 280);
-                    if (frameTime > 0) return 1000000f / frameTime;
-                    if (time0 > 0 && time1 > time0 && frames > 0) return 1000f * frames / (time1 - time0);
-                    return null;
-                }
-            }
-            catch { Disconnect(); }
-            return null;
-        }
-
-        private bool TryConnect()
-        {
-            Disconnect();
-            IntPtr mapping = OpenFileMapping(FileMapAllAccess, false, MapName);
-            if (mapping == IntPtr.Zero) return false;
-            IntPtr view = MapViewOfFile(mapping, FileMapAllAccess, 0, 0, UIntPtr.Zero);
-            if (view == IntPtr.Zero) { CloseHandle(mapping); return false; }
-            int signature = Marshal.ReadInt32(view, 0);
-            int version = Marshal.ReadInt32(view, 4);
-            if (signature != 0x53535452 || version < 0x00020000)
-            {
-                UnmapViewOfFile(view);
-                CloseHandle(mapping);
-                return false;
-            }
-            _mapping = mapping;
-            _view = view;
-            _slot = 0;
-            _connected = true;
-            return true;
-        }
-
-        private static string ReadAnsi(IntPtr baseAddress, int offset, int maxLength)
-        {
-            List<byte> bytes = new List<byte>();
-            for (int i = 0; i < maxLength; i++)
-            {
-                byte b = Marshal.ReadByte(baseAddress, offset + i);
-                if (b == 0) break;
-                bytes.Add(b);
-            }
-            return Encoding.ASCII.GetString(bytes.ToArray());
-        }
-
-        private static void WriteAnsi(IntPtr baseAddress, int offset, int maxLength, string text)
-        {
-            for (int i = 0; i < maxLength; i++) Marshal.WriteByte(baseAddress, offset + i, 0);
-            byte[] bytes = Encoding.ASCII.GetBytes(text ?? "");
-            int count = Math.Min(bytes.Length, maxLength - 1);
-            for (int i = 0; i < count; i++) Marshal.WriteByte(baseAddress, offset + i, bytes[i]);
-        }
-        private void Disconnect()
-        {
-            _connected = false;
-            _slot = 0;
-            if (_view != IntPtr.Zero) { try { UnmapViewOfFile(_view); } catch { } _view = IntPtr.Zero; }
-            if (_mapping != IntPtr.Zero) { try { CloseHandle(_mapping); } catch { } _mapping = IntPtr.Zero; }
-        }
-
-        public void Dispose()
-        {
-            if (_connected && _slot > 0 && _view != IntPtr.Zero)
-            {
-                try
-                {
-                    int entrySize = Marshal.ReadInt32(_view, 20);
-                    int arrayOffset = Marshal.ReadInt32(_view, 24);
-                    int version = Marshal.ReadInt32(_view, 4);
-                    IntPtr entry = new IntPtr(_view.ToInt64() + arrayOffset + _slot * entrySize);
-                    WriteAnsi(entry, 0, version >= 0x00020007 ? 4096 : 256, "");
-                    WriteAnsi(entry, 256, 256, "");
-                    int frame = Marshal.ReadInt32(_view, 32);
-                    Marshal.WriteInt32(_view, 32, frame + 1);
-                }
-                catch { }
-            }
-            Disconnect();
-        }
     }
 }
