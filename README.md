@@ -8,7 +8,7 @@
 - GPU 温度与占用率
 - 内存温度与占用率
 - 两块 SSD 各自的温度
-- 当前前台应用的实际帧率（需要 RTSS 运行）
+- 当前前台应用的实际帧率（内置 PresentMon，无需安装 RTSS）
 
 ## 功能
 
@@ -46,13 +46,15 @@ HardwareMonitorOverlay.exe --settings
 powershell -ExecutionPolicy Bypass -File src/build.ps1
 ```
 
-构建结果会输出到 `build/HardwareMonitorOverlay.exe`（多文件版本）。`release` 中的版本是使用 ILMerge 合并后的单文件版本。
+构建结果会输出到 `build/HardwareMonitorOverlay.exe`（多文件版本）。`release` 中的版本是使用 ILMerge 合并后的单文件版本，并已内嵌 PresentMon。
 
 ## 数据来源
 
 硬件传感器数据由 [LibreHardwareMonitor](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor) 提供。
 
-- 前台应用帧率来自本地 RTSS 共享内存；需要 RTSS 运行，无数据时显示 `--`。
+前台应用帧率由内置的 PresentMon 2.6.0 采集，无需单独安装 RTSS。没有可采集的帧数据时显示 `--`。
+
+RTSS 仅用于可选的游戏内 OSD，不再是 FPS 的必需依赖。
 
 ## 说明
 

@@ -9,3 +9,4 @@ Thumbs.db
 desktop.ini
 # Intermediate build output
 src/*.exe
+!src/PresentMon.exe

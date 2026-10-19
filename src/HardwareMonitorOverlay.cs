@@ -94,6 +94,7 @@ namespace HardwareMonitorOverlay
         private ToolStripMenuItem _autoStartItem;
         private ToolStripMenuItem _rtssStatusItem;
         private RtssOsdWriter _rtss;
+        private PresentMonFpsProvider _presentMon;
         private IHardware _ssd1;
         private IHardware _ssd2;
         private bool _panelHidden;
@@ -574,6 +575,7 @@ namespace HardwareMonitorOverlay
             if (_fullscreenTimer != null) { _fullscreenTimer.Stop(); _fullscreenTimer.Dispose(); _fullscreenTimer = null; }
             if (_computer != null) { try { _computer.Close(); } catch { } _computer = null; }
             if (_rtss != null) { _rtss.Dispose(); _rtss = null; }
+            if (_presentMon != null) { _presentMon.Dispose(); _presentMon = null; }
             if (_tray != null) { _tray.Visible = false; _tray.Dispose(); _tray = null; }
             if (_backgroundImage != null) { _backgroundImage.Dispose(); _backgroundImage = null; }
             if (_labelFont != null) { _labelFont.Dispose(); _labelFont = null; }
@@ -620,6 +622,8 @@ namespace HardwareMonitorOverlay
             try
             {
                 _rtss = new RtssOsdWriter();
+                _presentMon = new PresentMonFpsProvider();
+                _presentMon.Start();
                 _computer = new Computer();
                 _computer.IsCpuEnabled = true;
                 _computer.IsGpuEnabled = true;
@@ -772,11 +776,19 @@ namespace HardwareMonitorOverlay
 
         private float? ReadFps()
         {
-            if (_rtss == null) return null;
             uint processId = 0;
             IntPtr foreground = GetForegroundWindow();
             if (foreground != IntPtr.Zero) GetWindowThreadProcessId(foreground, out processId);
-            return _rtss.ReadForegroundFps(processId);
+
+            if (_presentMon != null)
+            {
+                _presentMon.UpdateForegroundPid(processId);
+                float? fps = _presentMon.CurrentFps;
+                if (fps.HasValue) return fps;
+            }
+
+            if (_rtss != null) return _rtss.ReadForegroundFps(processId);
+            return null;
         }
         private void UpdateValues()
         {

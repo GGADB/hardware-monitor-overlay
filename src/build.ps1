@@ -4,7 +4,9 @@ $sources = Get-ChildItem -LiteralPath $PSScriptRoot -Filter '*.cs' | ForEach-Obj
 $lib = Join-Path $PSScriptRoot 'lib'
 $build = Join-Path $root 'build'
 $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+$presentMon = Join-Path $PSScriptRoot 'PresentMon.exe'
 if (-not (Test-Path $csc)) { throw "csc.exe not found: $csc" }
+if (-not (Test-Path $presentMon)) { throw "PresentMon.exe not found: $presentMon" }
 New-Item -ItemType Directory -Path $build -Force | Out-Null
 $out = Join-Path $build 'HardwareMonitorOverlay.exe'
 $args = @(
@@ -14,8 +16,9 @@ $args = @(
     ('/out:"' + $out + '"'),
     '/r:System.dll', '/r:System.Core.dll', '/r:System.Windows.Forms.dll',
     '/r:System.Drawing.dll', '/r:System.Management.dll', '/r:System.Xml.dll',
-    '/r:System.Security.dll',
-    ('/r:"' + (Join-Path $lib 'LibreHardwareMonitorLib.dll') + '"')
+    '/r:System.Security.dll', '/r:Microsoft.VisualBasic.dll',
+    ('/r:"' + (Join-Path $lib 'LibreHardwareMonitorLib.dll') + '"'),
+    ('/resource:"' + $presentMon + '",PresentMon.exe')
 ) + $sources
 & $csc $args
 if ($LASTEXITCODE -ne 0) { throw "Build failed with exit code $LASTEXITCODE" }
