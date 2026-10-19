@@ -243,24 +243,36 @@ namespace HardwareMonitorOverlay
 
         private void OpenSettings()
         {
-            using (SettingsForm form = new SettingsForm(_settings))
+            OverlaySettings original = _settings.Clone();
+            using (SettingsForm form = new SettingsForm(_settings, delegate(OverlaySettings preview) { ApplyToOverlay(preview, false); }))
             {
                 form.TopMost = true;
                 if (form.ShowDialog() == DialogResult.OK)
                 {
-                    ApplySettings(form.ResultSettings);
+                    ApplyToOverlay(form.ResultSettings, true);
+                }
+                else
+                {
+                    ApplyToOverlay(original, false);
                 }
             }
         }
 
-        private void ApplySettings(OverlaySettings settings)
+        private void ApplyToOverlay(OverlaySettings settings, bool save)
         {
+            bool reloadBackground = _settings == null || _settings.BackgroundMode != settings.BackgroundMode || !string.Equals(_settings.BackgroundImagePath, settings.BackgroundImagePath, StringComparison.OrdinalIgnoreCase);
+            bool reloadFonts = _settings == null || _settings.FontSize != settings.FontSize || !string.Equals(_settings.FontFamilyName, settings.FontFamilyName, StringComparison.OrdinalIgnoreCase) || !string.Equals(_settings.FontFilePath, settings.FontFilePath, StringComparison.OrdinalIgnoreCase);
+            string oldHotkey = _settings == null ? null : _settings.MoveHotkey;
+
             _settings = settings.Clone();
-            SettingsStore.Save(_settings);
-            _moveHotkey = HotkeySetting.Parse(_settings.MoveHotkey);
-            _moveHotkeyHeld = false;
-            CreateFonts();
-            LoadBackgroundImage();
+            if (save) SettingsStore.Save(_settings);
+            if (!string.Equals(oldHotkey, _settings.MoveHotkey, StringComparison.OrdinalIgnoreCase))
+            {
+                _moveHotkey = HotkeySetting.Parse(_settings.MoveHotkey);
+                _moveHotkeyHeld = false;
+            }
+            if (reloadFonts) CreateFonts();
+            if (reloadBackground) LoadBackgroundImage();
             RecalculateLayout();
             ClampToScreen();
             ApplyClickThrough();

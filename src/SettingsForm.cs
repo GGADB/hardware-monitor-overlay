@@ -34,6 +34,8 @@ namespace HardwareMonitorOverlay
         private Label _spacingLabel;
         private TextBox _hotkeyBox;
         private string _hotkeyText = string.Empty;
+        private readonly Action<OverlaySettings> _preview;
+        private int _suppressPreview;
         private readonly HashSet<string> _importedFamilies = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         public OverlaySettings ResultSettings
@@ -41,9 +43,10 @@ namespace HardwareMonitorOverlay
             get { return _settings; }
         }
 
-        public SettingsForm(OverlaySettings settings)
+        public SettingsForm(OverlaySettings settings, Action<OverlaySettings> preview)
         {
             _settings = settings.Clone();
+            _preview = preview;
             Text = "设置 - 硬件温度与占用监控";
             FormBorderStyle = FormBorderStyle.FixedDialog;
             StartPosition = FormStartPosition.CenterScreen;
@@ -66,6 +69,23 @@ namespace HardwareMonitorOverlay
             };
         }
 
+        private void BeginSuppressPreview()
+        {
+            _suppressPreview++;
+        }
+
+        private void EndSuppressPreview()
+        {
+            if (_suppressPreview > 0) _suppressPreview--;
+        }
+
+        private void NotifyPreview()
+        {
+            if (_suppressPreview > 0 || _preview == null) return;
+            ReadFromUI();
+            _preview(_settings.Clone());
+        }
+
         private void BuildUI()
         {
             GroupBox backgroundGroup = new GroupBox();
@@ -78,21 +98,21 @@ namespace HardwareMonitorOverlay
             _transparentRadio.Text = "透明背景";
             _transparentRadio.Location = new Point(16, 26);
             _transparentRadio.AutoSize = true;
-            _transparentRadio.CheckedChanged += delegate { UpdateControlState(); };
+            _transparentRadio.CheckedChanged += delegate { UpdateControlState(); NotifyPreview(); };
             backgroundGroup.Controls.Add(_transparentRadio);
 
             _solidRadio = new RadioButton();
             _solidRadio.Text = "纯色背景";
             _solidRadio.Location = new Point(16, 54);
             _solidRadio.AutoSize = true;
-            _solidRadio.CheckedChanged += delegate { UpdateControlState(); };
+            _solidRadio.CheckedChanged += delegate { UpdateControlState(); NotifyPreview(); };
             backgroundGroup.Controls.Add(_solidRadio);
 
             _imageRadio = new RadioButton();
             _imageRadio.Text = "图片背景";
             _imageRadio.Location = new Point(16, 82);
             _imageRadio.AutoSize = true;
-            _imageRadio.CheckedChanged += delegate { UpdateControlState(); };
+            _imageRadio.CheckedChanged += delegate { UpdateControlState(); NotifyPreview(); };
             backgroundGroup.Controls.Add(_imageRadio);
 
             Label colorLabel = new Label();
@@ -136,7 +156,7 @@ namespace HardwareMonitorOverlay
             _clearImageButton.Text = "清除";
             _clearImageButton.Location = new Point(446, 150);
             _clearImageButton.Size = new Size(34, 28);
-            _clearImageButton.Click += delegate { _settings.BackgroundImagePath = string.Empty; _imagePathBox.Text = string.Empty; };
+            _clearImageButton.Click += delegate { _settings.BackgroundImagePath = string.Empty; _imagePathBox.Text = string.Empty; NotifyPreview(); };
             backgroundGroup.Controls.Add(_clearImageButton);
 
             Label opacityLabel = new Label();
@@ -153,7 +173,7 @@ namespace HardwareMonitorOverlay
             _backgroundOpacityBar.SmallChange = 1;
             _backgroundOpacityBar.Location = new Point(112, 190);
             _backgroundOpacityBar.Size = new Size(280, 45);
-            _backgroundOpacityBar.ValueChanged += delegate { _backgroundOpacityLabel.Text = _backgroundOpacityBar.Value + "%"; };
+            _backgroundOpacityBar.ValueChanged += delegate { _backgroundOpacityLabel.Text = _backgroundOpacityBar.Value + "%"; NotifyPreview(); };
             backgroundGroup.Controls.Add(_backgroundOpacityBar);
 
             _backgroundOpacityLabel = new Label();
@@ -178,12 +198,14 @@ namespace HardwareMonitorOverlay
             _horizontalRadio.Text = "横向单行";
             _horizontalRadio.Location = new Point(112, 22);
             _horizontalRadio.AutoSize = true;
+            _horizontalRadio.CheckedChanged += delegate { NotifyPreview(); };
             layoutGroup.Controls.Add(_horizontalRadio);
 
             _verticalRadio = new RadioButton();
             _verticalRadio.Text = "竖向多行";
             _verticalRadio.Location = new Point(232, 22);
             _verticalRadio.AutoSize = true;
+            _verticalRadio.CheckedChanged += delegate { NotifyPreview(); };
             layoutGroup.Controls.Add(_verticalRadio);
 
             Label spacingLabel = new Label();
@@ -200,7 +222,7 @@ namespace HardwareMonitorOverlay
             _spacingBar.LargeChange = 2;
             _spacingBar.Location = new Point(112, 54);
             _spacingBar.Size = new Size(300, 40);
-            _spacingBar.ValueChanged += delegate { _spacingLabel.Text = _spacingBar.Value + " px"; };
+            _spacingBar.ValueChanged += delegate { _spacingLabel.Text = _spacingBar.Value + " px"; NotifyPreview(); };
             layoutGroup.Controls.Add(_spacingBar);
 
             _spacingLabel = new Label();
@@ -227,6 +249,7 @@ namespace HardwareMonitorOverlay
                 {
                     _hotkeyText = string.Empty;
                     _hotkeyBox.Text = "未设置";
+                    NotifyPreview();
                     return;
                 }
                 if (e.KeyCode == Keys.ControlKey || e.KeyCode == Keys.ShiftKey || e.KeyCode == Keys.Menu || e.KeyCode == Keys.LWin || e.KeyCode == Keys.RWin) return;
@@ -235,6 +258,7 @@ namespace HardwareMonitorOverlay
                 if (string.IsNullOrEmpty(text)) return;
                 _hotkeyText = text;
                 _hotkeyBox.Text = text;
+                NotifyPreview();
             };
             layoutGroup.Controls.Add(_hotkeyBox);
 
@@ -242,7 +266,7 @@ namespace HardwareMonitorOverlay
             clearHotkeyButton.Text = "清除";
             clearHotkeyButton.Location = new Point(270, 104);
             clearHotkeyButton.Size = new Size(56, 26);
-            clearHotkeyButton.Click += delegate { _hotkeyText = string.Empty; _hotkeyBox.Text = "未设置"; };
+            clearHotkeyButton.Click += delegate { _hotkeyText = string.Empty; _hotkeyBox.Text = "未设置"; NotifyPreview(); };
             layoutGroup.Controls.Add(clearHotkeyButton);
 
             Label hotkeyHint = new Label();
@@ -269,6 +293,7 @@ namespace HardwareMonitorOverlay
             _fontFamilyBox.Location = new Point(112, 26);
             _fontFamilyBox.Size = new Size(250, 26);
             _fontFamilyBox.DropDownStyle = ComboBoxStyle.DropDownList;
+            _fontFamilyBox.SelectedIndexChanged += delegate { NotifyPreview(); };
             textGroup.Controls.Add(_fontFamilyBox);
 
             _importFontButton = new Button();
@@ -291,6 +316,7 @@ namespace HardwareMonitorOverlay
             _fontSizeBox.Maximum = 48m;
             _fontSizeBox.DecimalPlaces = 1;
             _fontSizeBox.Increment = 0.5m;
+            _fontSizeBox.ValueChanged += delegate { NotifyPreview(); };
             textGroup.Controls.Add(_fontSizeBox);
 
             Label ptLabel = new Label();
@@ -313,6 +339,7 @@ namespace HardwareMonitorOverlay
             _clickThroughBox.Text = "鼠标穿透（不挡住游戏点击）";
             _clickThroughBox.Location = new Point(36, 260);
             _clickThroughBox.AutoSize = true;
+            _clickThroughBox.CheckedChanged += delegate { NotifyPreview(); };
             textGroup.Controls.Add(_clickThroughBox);
 
             Button resetButton = new Button();
@@ -374,6 +401,7 @@ namespace HardwareMonitorOverlay
                 if (dialog.ShowDialog(this) == DialogResult.OK)
                 {
                     apply(dialog.SelectedColor);
+                    NotifyPreview();
                 }
             }
         }
@@ -394,6 +422,7 @@ namespace HardwareMonitorOverlay
                     _settings.BackgroundImagePath = destination;
                     _imagePathBox.Text = destination;
                     _imageRadio.Checked = true;
+                    NotifyPreview();
                 }
                 catch (Exception ex)
                 {
@@ -436,6 +465,7 @@ namespace HardwareMonitorOverlay
                     string first = collection.Families[0].Name;
                     _settings.FontFamilyName = first;
                     SelectFontFamily(first);
+                    NotifyPreview();
                 }
                 catch (Exception ex)
                 {
@@ -446,6 +476,7 @@ namespace HardwareMonitorOverlay
 
         private void PopulateFontFamilies(string importPath)
         {
+            BeginSuppressPreview();
             HashSet<string> names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             _fontFamilyBox.BeginUpdate();
             _fontFamilyBox.Items.Clear();
@@ -487,6 +518,7 @@ namespace HardwareMonitorOverlay
             if (string.IsNullOrEmpty(select) || !_fontFamilyBox.Items.Contains(select))
                 select = _fontFamilyBox.Items.Contains("Microsoft YaHei UI") ? "Microsoft YaHei UI" : (_fontFamilyBox.Items.Count > 0 ? (string)_fontFamilyBox.Items[0] : string.Empty);
             SelectFontFamily(select);
+            EndSuppressPreview();
         }
 
         private void SelectFontFamily(string name)
@@ -499,6 +531,7 @@ namespace HardwareMonitorOverlay
 
         private void LoadFromSettings()
         {
+            BeginSuppressPreview();
             _transparentRadio.Checked = _settings.BackgroundMode == BackgroundMode.Transparent;
             _solidRadio.Checked = _settings.BackgroundMode == BackgroundMode.Solid;
             _imageRadio.Checked = _settings.BackgroundMode == BackgroundMode.Image;
@@ -516,6 +549,7 @@ namespace HardwareMonitorOverlay
             _clickThroughBox.Checked = _settings.ClickThrough;
             UpdatePreviews();
             UpdateControlState();
+            EndSuppressPreview();
         }
 
         private void UpdatePreviews()
@@ -574,6 +608,7 @@ namespace HardwareMonitorOverlay
             _settings.MetricSpacing = defaults.MetricSpacing;
             _settings.MoveHotkey = defaults.MoveHotkey;
             LoadFromSettings();
+            NotifyPreview();
         }
     }
 }
